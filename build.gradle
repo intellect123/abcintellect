@@ -1,0 +1,291 @@
+apply plugin: 'java'
+import org.apache.tools.ant.filters.*;
+
+
+def BuildST = new Date().format("yyyyMMdd'_'HHmm")
+def BuildWorkspace = 'BuildOutput'
+def templocation = BuildWorkspace+'/temp'
+def BuildLogPath = BuildWorkspace+'/BuildLog'
+def BuildLogFile = 'LmsBuild_' + BuildST + '.log'
+	
+Properties props = new Properties()
+props.load(new FileInputStream("ENV_Config.properties"))
+
+task tgtEARPackaging << {
+	//println 'ear packaging selected\n'
+} 
+		if(Packaging.toLowerCase() == 'n') {
+			if(props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'n') {
+				gradle.startParameter.excludedTaskNames += "execute"
+			}
+			else if(props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'y') {
+				tgtEARPackaging.execute()
+			}
+		}
+		
+		else if(Packaging.toLowerCase() == 'y') {
+			if(props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'n') {
+				tgtEARPackaging.execute()
+			}
+			else if(props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'y') {
+				tgtEARPackaging.execute()
+			}
+		}
+
+task MakeDir(dependsOn: tgtEARPackaging) {
+
+	if(Packaging.toLowerCase() == 'y' || (Packaging.toLowerCase() == 'n' && props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'y')) {
+		
+		new File(templocation).mkdirs()
+		new File(templocation +'/'+ reports_dir).mkdirs()
+		new File(templocation +'/'+ ExchangePartition_dir).mkdirs()
+		new File(templocation +'/'+ portal_dir).mkdirs()
+		new File(templocation +'/'+ lmsWeb_dir).mkdirs()
+	}
+}
+
+task CopySource(dependsOn: MakeDir, type:Delete) {
+	if(Packaging.toLowerCase() == 'y' || (Packaging.toLowerCase() == 'n' && props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'y')) {
+	println "\n\nCopying jrxml(Jasper) files ..."
+	copy  	{
+			from '../Source Code/Jasper'
+			into 'src/main/jasperreports'
+			}
+	println "\n\nCopying Java source files ..."
+	copy  	{
+			from '../Source Code/' + src_dir
+			into templocation + '/' + src_dir
+			}
+	
+	println '\n\nCopying Library files ...'
+	copy 	{
+			from '../Source Code/' + lib_dir
+			into templocation + '/' + lib_dir
+				exclude '**/ARXLib/**'
+			}
+	
+	println '\n\nCopying ARX Library files ...'
+	copy 	{	 
+			from '../Source Code/' + lib_dir + '/' + ARXLib_dir
+			into templocation + '/' + ARXLib_dir
+			}
+	
+	println '\n\nCopying Descriptor files ...'
+	copy 	{
+			from '../Source Code/Descriptors/' + AppDescriptor_dir
+			into templocation + '/' + descriptor_dir
+			}
+	
+	println '\n\nCopying Web files ...'
+	copy 	{
+			from '../Source Code/' + web_dir
+			into templocation + '/' + web_dir
+				exclude '**/*.jar' 
+				exclude '**/web.xml'	
+			}
+	
+	if(CLASSIC_THEME.toLowerCase() == 'y' )
+			{	
+				copy	{
+					from '../Source Code/' + web_dir + '/classictheme'
+					into templocation + '/' + web_dir
+				}
+				delete templocation + '/' + web_dir + '/classictheme'
+			}
+	if(UX_ENABLED.toLowerCase() == 'y' )
+			{	
+				copy	{
+					from '../Source Code/' + web_dir + '/ux'
+					into templocation + '/' + web_dir
+				}
+				delete templocation + '/' + web_dir + '/ux'
+			}
+			
+	println '\n\nCopying tlineconfig files ...'
+	copy 	{
+			from '../Source Code/Config/' + tlineconfig_dir
+			into templocation +'/'+ prop_dir +'/'+ tlineconfig_dir
+			}
+	println '\n\nCopying lmsconfig files ...'
+	copy 	{
+			from '../Source Code/Config/' + lmsconfig_dir
+			into templocation +'/'+ prop_dir +'/'+ lmsconfig_dir
+			}
+	
+	println '\n\nCopying Simulation tlineconfig files ...'
+	copy 	{
+			from '../Source Code/Simcommon'
+			into templocation +'/'+ SimProp_dir
+			}
+	
+	println '\n\nCopying cashcoreconfig files ...'
+	copy 	{
+			from '../Source Code/Config/' + cashcoreconfig_dir
+			into templocation +'/'+ prop_dir +'/'+ cashcoreconfig_dir
+			}
+	
+	println '\n\nCopying JSP, JS and CSS compressing jar files ...'
+	copy 	{
+			from templocation +'/'+ lib_dir
+			into templocation +'/'+ ExtLib_Dir
+				include 'ant.jar'
+				include 'jargs-1.0.jar'
+				include 'jspcompressor-0.1.jar'
+				include 'jsp-api.jar'
+				include 'rhino-1.6R7.jar'
+				include 'yuicompressor-2.4.2.jar'
+				include 'YUIAnt.jar'
+				include 'servlet-api.jar'
+			}
+	
+	}
+}
+
+task CompileJasper(type: GradleBuild, dependsOn: CopySource) {
+	
+	onlyIf{FLG_JASPER_REPORT.toLowerCase() == 'y'}
+	
+		buildFile = 'CompileSourceJasper.gradle'
+		tasks = ['CompileSourceJasper']
+	
+}
+
+task CompileSources(type: GradleBuild, dependsOn: CompileJasper) {
+	
+	buildFile = 'CompileSource.gradle'
+    tasks = ['compileOne']
+}
+
+task CallMakeApplicationJar(type: GradleBuild, dependsOn: CompileSources) {
+	buildFile = 'MakeApplicationJar.gradle'
+    tasks = ['CreateCashCoreConfig']
+}
+
+task CallMakeApplicationEar(type: GradleBuild, dependsOn: CallMakeApplicationJar) {
+	buildFile = 'MakeApplicationEar.gradle'
+	tasks = ['CreateEarFile']
+}
+
+task MakeApplicationTar(type: Tar, dependsOn: CallMakeApplicationEar) {
+	
+	if(Packaging.toLowerCase() == 'y' || (Packaging.toLowerCase() == 'n' && props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'y')) {
+	from templocation +'/'+ appEarFile + '.ear'
+	from (templocation +'/'+ SimProp_dir) {
+	into ("SimProperties")
+	include '**/*'
+	}
+	
+	from (templocation +'/'+ ExtLib_Dir) {
+	into ("ExtJars")
+	include '**/*'
+	}
+	from (templocation + '/' + ARXLib_dir) {
+	into ("ARXLib")
+	include '**/*'
+	}
+	from 'EARDeploy_new.gradle'
+	from 'gradle.properties'
+	from 'ENV_Config.properties'
+	baseName = appTarFile
+	destinationDir = file(BuildWorkspace)
+	
+	copy {
+	from '.'
+	into BuildWorkspace
+	include 'installation.gradle'
+	include 'deploy.bat'
+	include 'ENV_Config.properties'
+	include 'command.sh'
+	include 'replace.xml'
+	include 'tokenReplace.gradle'
+	include 'JarExtract.gradle'
+	include 'jar_replace.xml'
+	if(CFF_ENABLED_FLAG == 'Y') {
+		include 'Lms-cff-build.properties'
+		include 'Lms-cff-build.gradle'
+	}
+	if(DB_Packaging.toLowerCase() == 'y'){
+		include 'get_password.xml'
+		include 'project.properties'
+		include 'test.sql'
+	}
+	}
+	
+	copy {
+		from '.'
+		into BuildWorkspace + '/EAR'
+		include 'LMS_WL_AppConfig.py'
+		include 'LMS_WL_AppConfig_1c.py'
+		include 'LMS_WL_AppConfig.properties'
+		include 'LMS_WAS_Config.properties'
+		include 'LMS_WAS_Config.py'
+		include 'LMS_WAS_Deploy.py'
+		//include 'jardeploy.py'
+	}
+	
+	copy {
+		from '.'
+		into BuildWorkspace + '/EAR/ExtLib'
+		include 'jar_replace.xml'
+	}
+	if(Packaging.toLowerCase() == 'y') {
+		copy {
+			from '.'
+			into BuildWorkspace
+			include 'Readme.txt'
+		}
+	}
+	}
+}
+
+task server_prop_replace(dependsOn: MakeApplicationTar) {
+	if(Packaging.toLowerCase() == 'y' || (Packaging.toLowerCase() == 'n' && props['Create_EAR_of_Intellect_Liquidity'].toLowerCase() == 'y')) {
+	copy {
+		from 'gradle.properties'
+		into 'BuildOutput'
+		if(server.toLowerCase() == 'weblogic') {
+			filter{ it.replaceAll('@JAVA_NAMING_PAYMENTS_CONTEXT_FACTORY_INITIAL@', WEBLOGIC)}
+			filter{ it.replaceAll('@JAVA_NAMING_PORTAL_CONTEXT_FACTORY_INITIAL@', WEBLOGIC)}
+			filter{ it.replaceAll('@EAR_PROP_CONTEXT_FACTORY@', WEBLOGIC)}
+			filter{ it.replaceAll('@INITIAL_CONTEXT_FACTORY@', WEBLOGIC)}
+			filter{ it.replaceAll('@EAR_PROP_URL_PKG_PREFIXES@', '')}
+			filter{ it.replaceAll('@WEB_XML_PROP_REST_WS_SERVLET_CLASS@', WebLogic_servlet)}
+		}
+		
+		else if(server.toLowerCase() == 'jboss') {
+			filter{ it.replaceAll('@JAVA_NAMING_PAYMENTS_CONTEXT_FACTORY_INITIAL@', JBOSS)}
+			filter{ it.replaceAll('@JAVA_NAMING_PORTAL_CONTEXT_FACTORY_INITIAL@', JBOSS)}
+			filter{ it.replaceAll('@EAR_PROP_CONTEXT_FACTORY@', JBOSS)}
+			filter{ it.replaceAll('@INITIAL_CONTEXT_FACTORY@', JBOSS)}
+			filter{ it.replaceAll('@EAR_PROP_URL_PKG_PREFIXES@', 'org.jboss.naming:org.jnp.interfaces')}
+			filter{ it.replaceAll('@WEB_XML_PROP_REST_WS_SERVLET_CLASS@', Jboss_servlet)}
+		}
+		
+		else if(server.toLowerCase() == 'websphere') {
+			filter{ it.replaceAll('@JAVA_NAMING_PAYMENTS_CONTEXT_FACTORY_INITIAL@', WEBSPHERE)}
+			filter{ it.replaceAll('@JAVA_NAMING_PORTAL_CONTEXT_FACTORY_INITIAL@', WEBSPHERE)}
+			filter{ it.replaceAll('@EAR_PROP_CONTEXT_FACTORY@', WEBSPHERE)}
+			filter{ it.replaceAll('@INITIAL_CONTEXT_FACTORY@', WEBSPHERE)}
+			filter{ it.replaceAll('@EAR_PROP_URL_PKG_PREFIXES@', '')}
+			filter{ it.replaceAll('@WEB_XML_PROP_REST_WS_SERVLET_CLASS@', Websphere_servlet)}
+		}
+	}
+	copy {
+		from "command.sh"
+		into "BuildOutput"
+		filter(FixCrLfFilter.class, eol:FixCrLfFilter.CrLf.newInstance("lf"))
+		}
+	copy {
+		from "CreateFolderStructure.sh.bat"
+		into "BuildOutput"
+		filter(FixCrLfFilter.class, eol:FixCrLfFilter.CrLf.newInstance("lf"))
+		}
+	}
+}
+
+task execute(type:GradleBuild, dependsOn: server_prop_replace) { 
+		
+		buildFile = 'BuildOutput/installation.gradle'
+		tasks = ['cleanup']
+}
+
